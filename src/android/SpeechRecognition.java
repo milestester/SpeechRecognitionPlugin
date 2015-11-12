@@ -101,7 +101,6 @@ public class SpeechRecognition extends CordovaPlugin {
             stop(false);
         }
         else if (ACTION_SPEECH_RECOGNIZE_ABORT.equals(action)) {
-            setStreamVolumeBack();
             stop(true);
             Handler loopHandler = new Handler(Looper.getMainLooper());
             loopHandler.post(new Runnable() {
@@ -114,6 +113,7 @@ public class SpeechRecognition extends CordovaPlugin {
                 }
 
             });
+            setStreamVolumeBack();
         }
         else {
             // Invalid action
