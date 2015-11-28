@@ -36,6 +36,7 @@ public class SpeechRecognition extends CordovaPlugin {
     private boolean recognizerPresent = false;
     private SpeechRecognizer recognizer;
     private boolean aborted = false;
+    private boolean paused = false;
     private Intent intent;
     private AudioManager mAudioManager;
     private int mStreamVolume = 0;
@@ -53,8 +54,12 @@ public class SpeechRecognition extends CordovaPlugin {
 
                     @Override
                     public void run() {
+                        // Define SpeechRecognizer object
                         recognizer = SpeechRecognizer.createSpeechRecognizer(cordova.getActivity().getBaseContext());
                         recognizer.setRecognitionListener(new SpeechRecognitionListner());
+                        // Increase volume when initializing
+                        mAudioManager = (AudioManager) cordova.getActivity().getSystemService(Context.AUDIO_SERVICE);
+                        mAudioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 6, 0);
                     }
 
                 });
@@ -63,6 +68,7 @@ public class SpeechRecognition extends CordovaPlugin {
             }
         }
         else if (ACTION_SPEECH_RECOGNIZE_START.equals(action)) {
+            paused = false;
             // recognize speech
             if (!recognizerPresent) {
                 callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.ERROR, NOT_PRESENT_MESSAGE));
@@ -93,7 +99,6 @@ public class SpeechRecognition extends CordovaPlugin {
             res.setKeepCallback(true);
             callbackContext.sendPluginResult(res);
 
-            mAudioManager = (AudioManager) cordova.getActivity().getSystemService(Context.AUDIO_SERVICE);
             mStreamVolume = mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
             muteStreamVolume();
         }
@@ -101,19 +106,15 @@ public class SpeechRecognition extends CordovaPlugin {
             stop(false);
         }
         else if (ACTION_SPEECH_RECOGNIZE_ABORT.equals(action)) {
-            stop(true);
+            paused = true;
+            setStreamVolumeBack();
             Handler loopHandler = new Handler(Looper.getMainLooper());
-            loopHandler.post(new Runnable() {
-
+            loopHandler.postAtFrontOfQueue(new Runnable() {
                 @Override
                 public void run() {
-                    if(recognizer != null) {
-                        recognizer.cancel();
-                    }
+                    recognizer.cancel();
                 }
-
             });
-            setStreamVolumeBack();
         }
         else {
             // Invalid action
@@ -236,9 +237,7 @@ public class SpeechRecognition extends CordovaPlugin {
         @Override
         public void onError(int error) {
             Log.d(LOG_TAG, "error speech");
-            // fireErrorEvent();
-            // fireEvent("end");
-            if(error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+            if(!paused && (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
                 Log.d(LOG_TAG, "didn't recognize any speech");
                 Handler loopHandler = new Handler(Looper.getMainLooper());
                 loopHandler.post(new Runnable() {
@@ -246,16 +245,15 @@ public class SpeechRecognition extends CordovaPlugin {
                     @Override
                     public void run() {
                         if(recognizer != null) {
+                            recognizer.stopListening();
                             recognizer.cancel();
                             recognizer.destroy();
-                            recognizer = null;
+                            recognizer = SpeechRecognizer.createSpeechRecognizer(cordova.getActivity().getBaseContext());
+                            recognizer.setRecognitionListener(new SpeechRecognitionListner());
+                            recognizer.startListening(intent);
                         }
-                        recognizer = SpeechRecognizer.createSpeechRecognizer(cordova.getActivity().getBaseContext());
-                        recognizer.setRecognitionListener(new SpeechRecognitionListner());
-                        recognizer.startListening(intent);
                     }
                 });
-                muteStreamVolume();
             }
         }
 
@@ -290,14 +288,23 @@ public class SpeechRecognition extends CordovaPlugin {
             }
             Log.d(LOG_TAG, "after results");
             Handler loopHandler = new Handler(Looper.getMainLooper());
-            loopHandler.post(new Runnable() {
+            if(paused) {
+                loopHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        recognizer.cancel();
+                    }
 
-                @Override
-                public void run() {
-                    recognizer.startListening(intent);
-                }
+                });
+            } else {
+                loopHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        recognizer.startListening(intent);
+                    }
 
-            });
+                });
+            }
         }
 
         @Override
